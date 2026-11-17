@@ -1,0 +1,60 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+*.egg
+
+# === Environnements virtuels ===
+env/
+.venv/
+venv/
+ENV/
+
+# === PyInstaller / artefacts de build ===
+build/
+dist/
+*.exe
+*.manifest
+
+# === Caches et outils ===
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# === IDE / éditeurs ===
+.vscode/
+.idea/
+*.swp
+*.suo
+
+# === OS ===
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# === Journaux ===
+*.log
+
+# === Documents sources volumineux (non versionnés) ===
+*.pdf
+*.doc
+*.docx
+*.xlsx
+!Exemple_import_*.xlsx
+
+# === Images de travail (les ressources de l'app sont conservées) ===
+*.png
+*.jpg
+*.jpeg
+!assets/*.png
+
+# === Rapports générés ===
+rapport/
