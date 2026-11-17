@@ -666,6 +666,110 @@ def _ajouter_section_catalogue_mcp_docx(doc, resultat) -> None:
     doc.add_paragraph()
 
 
+def _ajouter_section_configurations_air_docx(doc, configuration_equipements) -> None:
+    """Section « Configurations d'équipement » avec choix de l'utilisateur."""
+    from .catalogue_ceai import (
+        SOURCE_DOCX,
+        ORIGINE_FIRM,
+        PRESSION_REFERENCE,
+        CONFIG_AUDIT,
+        CONFIGURATIONS,
+        VENTOUSES_TRIFON_CEAI,
+        CLAPETS_CEAI,
+        PURGEURS_SONIQUES_SNH,
+        resume_configuration,
+    )
+
+    if isinstance(configuration_equipements, dict):
+        choix = configuration_equipements.get("choix", CONFIG_AUDIT)
+        configs = configuration_equipements.get(
+            "configurations", configuration_equipements
+        )
+    else:
+        configs, choix = configuration_equipements, CONFIG_AUDIT
+    if not configs:
+        return
+
+    _ajouter_titre(
+        doc, "Configurations d'équipement — grands DN (choix utilisateur)", 1
+    )
+    _ajouter_paragraphe(
+        doc,
+        f"Source : {SOURCE_DOCX}. Capacités d'air admis en m³/h à la "
+        f"dépression nominale de {PRESSION_REFERENCE} ; origine {ORIGINE_FIRM} "
+        "pour les organes CEAI / TRIFON. Les configurations sont comparées "
+        "côte à côte ; la configuration retenue est signalée par « ★ RETENU ».",
+        taille=10,
+    )
+    _ajouter_paragraphe(
+        doc, f"Configuration retenue : {choix}", taille=11, gras=True
+    )
+
+    lignes = []
+    for nom in CONFIGURATIONS:
+        resultat = configs.get(nom)
+        if resultat is None:
+            continue
+        v, c = resultat.ventouse, resultat.clapet
+        lignes.append([
+            ("★ RETENU — " if nom == choix else "") + nom,
+            f"{resultat.debit_m3s:.3f}",
+            f"{v.famille} {v.dn} ×{v.nombre}",
+            f"{v.capacite_totale_m3s:.3f}",
+            f"{c.famille} {c.dn} ×{c.nombre}",
+            f"{c.capacite_totale_m3s:.3f}",
+            "OUI" if resultat.couvert else "NON",
+        ])
+    _ajouter_table_docx(
+        doc,
+        [
+            "Configuration", "Qair (m³/s)", "Ventouse", "Capacité ventouse (m³/s)",
+            "Clapet", "Capacité clapet (m³/s)", "Couverture",
+        ],
+        lignes,
+    )
+
+    for nom in CONFIGURATIONS:
+        resultat = configs.get(nom)
+        if resultat is not None:
+            _ajouter_paragraphe(
+                doc, resume_configuration(resultat),
+                taille=9,
+                couleur=_COULEUR_GRIS if nom != choix else None,
+            )
+
+    _ajouter_paragraphe(
+        doc, "Détail des capacités catalogues (m³/h à 3 mCE) :",
+        taille=10, gras=True,
+    )
+    for titre, table in (
+        ("Ventouses TRIFON (CEAI)", VENTOUSES_TRIFON_CEAI),
+        ("Clapets d'admission CEAI", CLAPETS_CEAI),
+        ("Purgeurs soniques SNH — référence purge continue", PURGEURS_SONIQUES_SNH),
+    ):
+        _ajouter_paragraphe(doc, titre, taille=9, gras=True)
+        _ajouter_table_docx(
+            doc,
+            ["DN", "Capacité (m³/h)", "Capacité (m³/s)", "Retenu", "Origine"],
+            [
+                [
+                    o.dn, f"{o.capacite_m3h:g}", f"{o.capacite_m3s:.4f}",
+                    o.retenu, o.origine,
+                ]
+                for o in table
+            ],
+        )
+    _ajouter_paragraphe(
+        doc,
+        "Le purgeur sonique SNH assure la purge continue aux points hauts ; "
+        "son débit très faible ne doit pas être confondu avec les capacités "
+        "d'admission en grand débit des ventouses et clapets.",
+        taille=9,
+        couleur=_COULEUR_GRIS,
+    )
+    doc.add_paragraph()
+
+
 # ===========================================================================
 # RAPPORT DOCX
 # ===========================================================================
@@ -682,6 +786,7 @@ def generer_rapport_docx(
     inputs_resume: str | None = None,
     tableau_import: "ResultatImportTableau | None" = None,
     catalogue_mcp=None,
+    configuration_equipements=None,
 ) -> Path:
     """Génère un rapport Word .docx récapitulant les calculs, vérifications et graphiques."""
     chemin = Path(chemin)
@@ -694,6 +799,17 @@ def generer_rapport_docx(
             donnees.diam_conduit * 1000 if donnees.diam_conduit else None,
             "admission",
         )
+    if (
+        configuration_equipements is None
+        and donnees is not None
+        and donnees.debit_air_equipement > 0
+    ):
+        from .catalogue_ceai import CONFIG_AUDIT, analyser_configurations
+
+        configuration_equipements = {
+            "choix": CONFIG_AUDIT,
+            "configurations": analyser_configurations(donnees.debit_air_equipement),
+        }
 
     # Graphiques (PNG a cote du rapport)
     graphes = generer_tous_graphiques(
@@ -957,6 +1073,10 @@ def generer_rapport_docx(
     if catalogue_mcp is not None:
         _ajouter_section_catalogue_mcp_docx(doc, catalogue_mcp)
 
+    # --- Configurations équipements (choix utilisateur) ---
+    if configuration_equipements is not None:
+        _ajouter_section_configurations_air_docx(doc, configuration_equipements)
+
     # --- Audit et comparatif note initiale / note corrigée ---
     _ajouter_section_audit_docx(doc)
 
@@ -1007,6 +1127,7 @@ def generer_rapport_xlsx(
     inputs_resume: str | None = None,
     tableau_import: "ResultatImportTableau | None" = None,
     catalogue_mcp=None,
+    configuration_equipements=None,
 ) -> Path:
     """Génère un rapport Excel .xlsx avec feuilles de données et une feuille Graphiques."""
     chemin = Path(chemin)
@@ -1019,6 +1140,17 @@ def generer_rapport_xlsx(
             donnees.diam_conduit * 1000 if donnees.diam_conduit else None,
             "admission",
         )
+    if (
+        configuration_equipements is None
+        and donnees is not None
+        and donnees.debit_air_equipement > 0
+    ):
+        from .catalogue_ceai import CONFIG_AUDIT, analyser_configurations
+
+        configuration_equipements = {
+            "choix": CONFIG_AUDIT,
+            "configurations": analyser_configurations(donnees.debit_air_equipement),
+        }
 
     # Graphiques (PNG a cote du rapport)
     graphes = generer_tous_graphiques(
@@ -1593,6 +1725,97 @@ def generer_rapport_xlsx(
         if catalogue_mcp.avertissement:
             wsm.cell(row=ligne_resume + 4, column=1, value="Avertissement").font = Font(bold=True)
             wsm.cell(row=ligne_resume + 4, column=2, value=catalogue_mcp.avertissement)
+
+    # ---- Feuille Configurations Air ----
+    if configuration_equipements is not None:
+        from .catalogue_ceai import (
+            SOURCE_DOCX,
+            ORIGINE_FIRM,
+            PRESSION_REFERENCE,
+            CONFIG_AUDIT,
+            CONFIGURATIONS,
+            VENTOUSES_TRIFON_CEAI,
+            CLAPETS_CEAI,
+            PURGEURS_SONIQUES_SNH,
+            resume_configuration,
+        )
+
+        if isinstance(configuration_equipements, dict):
+            choix = configuration_equipements.get("choix", CONFIG_AUDIT)
+            configs = configuration_equipements.get(
+                "configurations", configuration_equipements
+            )
+        else:
+            configs, choix = configuration_equipements, CONFIG_AUDIT
+
+        wsc = wb.create_sheet("Configurations Air")
+        wsc["A1"] = "Configurations d'équipement — grands DN (choix utilisateur)"
+        wsc["A1"].font = Font(bold=True, size=13, color="1F3B5C")
+        wsc["A2"] = (
+            f"Source : {SOURCE_DOCX} — capacités en m³/h à {PRESSION_REFERENCE} "
+            f"; origine CEAI / TRIFON : {ORIGINE_FIRM}."
+        )
+        wsc["A3"] = f"Configuration retenue : {choix}"
+        wsc["A3"].font = Font(bold=True, color="1B5E20")
+
+        entetes_cfg = [
+            "Configuration", "Qair (m³/s)", "Ventouse", "Cap. ventouse (m³/s)",
+            "Clapet", "Cap. clapet (m³/s)", "Couverture", "Résumé",
+        ]
+        for c, h in enumerate(entetes_cfg, start=1):
+            _style_cellule_en_tete(wsc.cell(row=5, column=c, value=h))
+        ligne = 6
+        for nom in CONFIGURATIONS:
+            resultat = configs.get(nom)
+            if resultat is None:
+                continue
+            v, c = resultat.ventouse, resultat.clapet
+            valeurs = [
+                ("★ RETENU — " if nom == choix else "") + nom,
+                resultat.debit_m3s,
+                f"{v.famille} {v.dn} ×{v.nombre}",
+                v.capacite_totale_m3s,
+                f"{c.famille} {c.dn} ×{c.nombre}",
+                c.capacite_totale_m3s,
+                "OUI" if resultat.couvert else "NON",
+                resume_configuration(resultat),
+            ]
+            for col, val in enumerate(valeurs, start=1):
+                _style_cellule_donnee(
+                    wsc.cell(row=ligne, column=col, value=val),
+                    align_center=(col != 8),
+                )
+            ligne += 1
+
+        ligne += 1
+
+        def _ecrire_table_organes(titre, table, ligne_depart):
+            cellule = wsc.cell(row=ligne_depart, column=1, value=titre)
+            cellule.font = Font(bold=True, size=11, color="1F3B5C")
+            entetes = ["DN", "Capacité (m³/h)", "Capacité (m³/s)", "Retenu", "Origine"]
+            for c, h in enumerate(entetes, start=1):
+                _style_cellule_en_tete(wsc.cell(row=ligne_depart + 1, column=c, value=h))
+            for r, organe in enumerate(table, start=ligne_depart + 2):
+                valeurs = [
+                    organe.dn,
+                    organe.capacite_m3h,
+                    organe.capacite_m3s,
+                    organe.retenu,
+                    organe.origine,
+                ]
+                for c, val in enumerate(valeurs, start=1):
+                    _style_cellule_donnee(wsc.cell(row=r, column=c, value=val))
+            return ligne_depart + 2 + len(table) + 1
+
+        for titre, table in (
+            ("Ventouses TRIFON (CEAI)", VENTOUSES_TRIFON_CEAI),
+            ("Clapets d'admission CEAI", CLAPETS_CEAI),
+            ("Purgeurs soniques SNH — référence purge continue", PURGEURS_SONIQUES_SNH),
+        ):
+            ligne = _ecrire_table_organes(titre, table, ligne)
+
+        for c, width in enumerate([34, 18, 30, 22, 30, 22, 14, 90], start=1):
+            wsc.column_dimensions[get_column_letter(c)].width = width
 
     wb.save(str(chemin))
     return chemin

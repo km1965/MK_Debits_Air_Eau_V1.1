@@ -18,6 +18,12 @@ from debits_ae import (
     VENTOUSES_MCP,
     analyser_mcp,
     resume_mcp,
+    CONFIG_AUDIT,
+    CONFIG_CEAI,
+    CONFIGURATIONS,
+    analyser_configurations,
+    resume_configuration,
+    plus_grand_purgeur_sonique,
 )
 from debits_ae.ui.base_tab import OngletProjet
 from debits_ae.ui.widgets import LabeledEntry, CalcButton, ExportButton, AlerteFrame
@@ -154,6 +160,54 @@ class TabEquipement(OngletProjet):
             anchor="w", font=ctk.CTkFont(size=10),
         ).pack(anchor="w", padx=10, pady=(2, 8))
 
+        # --- Configurations équipements (grands DN) ---
+        frame_configs = ctk.CTkFrame(self)
+        frame_configs.pack(side="top", fill="x", padx=15, pady=(0, 10))
+
+        ctk.CTkLabel(
+            frame_configs,
+            text="Configurations d'équipement — choix de la référence retenue",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color="#8A5A00",
+        ).pack(anchor="w", padx=10, pady=(10, 5))
+
+        grille_choix = ctk.CTkFrame(frame_configs)
+        grille_choix.pack(fill="x", padx=10, pady=(0, 6))
+
+        ctk.CTkLabel(
+            grille_choix, text="Configuration retenue :", anchor="w"
+        ).pack(side="left", padx=(0, 6), pady=4)
+
+        self.configuration_choisie = ctk.StringVar(value=CONFIG_AUDIT)
+        self.menu_configuration = ctk.CTkOptionMenu(
+            grille_choix,
+            variable=self.configuration_choisie,
+            values=list(CONFIGURATIONS),
+            width=280,
+            command=self._configuration_a_change,
+        )
+        self.menu_configuration.pack(side="left", padx=6, pady=4)
+
+        purgeur = plus_grand_purgeur_sonique()
+        ctk.CTkLabel(
+            frame_configs,
+            text=f"Référence purge continue : purgeur sonique SNH {purgeur.dn} "
+                 f"({purgeur.capacite_m3h:g} m³/h à 3 mCE).",
+            anchor="w", font=ctk.CTkFont(size=10),
+        ).pack(anchor="w", padx=10, pady=(0, 4))
+
+        self.lbl_config_audit = ctk.CTkLabel(
+            frame_configs, text="—", anchor="w", font=ctk.CTkFont(size=11),
+            wraplength=900, justify="left",
+        )
+        self.lbl_config_audit.pack(anchor="w", padx=10, pady=2)
+
+        self.lbl_config_ceai = ctk.CTkLabel(
+            frame_configs, text="—", anchor="w", font=ctk.CTkFont(size=11),
+            wraplength=900, justify="left",
+        )
+        self.lbl_config_ceai.pack(anchor="w", padx=10, pady=(2, 10))
+
         # --- Alerte ---
         self.frame_alerte = AlerteFrame(self, message="", niveau="info")
         self.frame_alerte.pack(side="top", fill="x", padx=15, pady=(0, 10))
@@ -175,6 +229,36 @@ class TabEquipement(OngletProjet):
         if v is None:
             return 0.0
         return max(v.qair_degazage, v.qair_remplissage, v.qair_admission)
+
+    def _configuration_a_change(self, _valeur: str | None = None) -> None:
+        """Met en évidence la configuration choisie par l'utilisateur."""
+        self._afficher_configurations()
+
+    def _afficher_configurations(self) -> None:
+        """Affiche les deux configurations et met en avant celle retenue."""
+        resultats = self.resultats_partages.get("configurations_air")
+        if not resultats:
+            return
+        choix = self.configuration_choisie.get()
+        for nom, lbl in (
+            (CONFIG_AUDIT, self.lbl_config_audit),
+            (CONFIG_CEAI, self.lbl_config_ceai),
+        ):
+            resultat = resultats.get(nom)
+            if resultat is None:
+                continue
+            prefix = "★ RETENU — " if nom == choix else ""
+            lbl.configure(
+                text=prefix + resume_configuration(resultat),
+                text_color="#1B5E20" if nom == choix else "#757575",
+                font=ctk.CTkFont(
+                    size=11, weight="bold" if nom == choix else "normal"
+                ),
+            )
+        self.resultats_partages["configuration_equipements"] = {
+            "choix": choix,
+            "configurations": resultats,
+        }
 
     def _utiliser_debit_calcule(self) -> None:
         debit = self._debit_calcule()
@@ -239,11 +323,16 @@ class TabEquipement(OngletProjet):
         )
         self.resultats_partages["catalogue_mcp"] = resultat_mcp
 
+        configurations = analyser_configurations(debit)
+        self.resultats_partages["configurations_air"] = configurations
+        self._afficher_configurations()
+
         msg = (
             f"Pour un débit d'air de {debit:.4f} m³/s : "
             f"PAM {pam.dn if pam else '—'}, SNH {snh.dn if snh else '—'}, "
             f"MCP {resultat_mcp.dn_propose or '—'} "
-            f"×{resultat_mcp.nombre}."
+            f"×{resultat_mcp.nombre}. Configuration retenue : "
+            f"{self.configuration_choisie.get()}."
         )
         self._afficher_alerte(msg, niveau="info")
 
@@ -265,6 +354,18 @@ class TabEquipement(OngletProjet):
                     snh.dn,
                     snh.debit_admission_depression_3m_m3s,
                     snh.debit_admission_depression_3m_m3s - debit,
+                    "admission",
+                )
+            )
+
+        config_ceai = configurations[CONFIG_CEAI]
+        for proposition in (config_ceai.ventouse, config_ceai.clapet):
+            equipements.append(
+                EquipementChoice(
+                    proposition.famille,
+                    proposition.dn,
+                    proposition.capacite_unitaire_m3s,
+                    proposition.marge_m3s,
                     "admission",
                 )
             )
@@ -298,6 +399,17 @@ class TabEquipement(OngletProjet):
             )
         else:
             self.lbl_mcp_resultat.configure(text="—", text_color="#757575")
+
+        config_sauvegarde = self.resultats_partages.get("configuration_equipements")
+        if config_sauvegarde:
+            self.configuration_choisie.set(config_sauvegarde["choix"])
+            self.resultats_partages["configurations_air"] = config_sauvegarde[
+                "configurations"
+            ]
+            self._afficher_configurations()
+        else:
+            self.lbl_config_audit.configure(text="—", text_color="#757575")
+            self.lbl_config_ceai.configure(text="—", text_color="#757575")
 
     def _afficher_sauvegarde(self) -> None:
         for eq in self.projet.equipements:
@@ -333,6 +445,9 @@ class TabEquipement(OngletProjet):
                 equipements=self.projet.equipements,
                 inputs_resume=self.projet.resume_texte(),
                 catalogue_mcp=self.resultats_partages.get("catalogue_mcp"),
+                configuration_equipements=self.resultats_partages.get(
+                    "configuration_equipements"
+                ),
             )
 
     def _exporter_xlsx(self) -> None:
@@ -353,4 +468,7 @@ class TabEquipement(OngletProjet):
                 equipements=self.projet.equipements,
                 inputs_resume=self.projet.resume_texte(),
                 catalogue_mcp=self.resultats_partages.get("catalogue_mcp"),
+                configuration_equipements=self.resultats_partages.get(
+                    "configuration_equipements"
+                ),
             )

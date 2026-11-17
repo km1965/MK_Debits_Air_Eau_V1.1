@@ -414,6 +414,9 @@ class TabVerification(OngletProjet):
             inputs_resume=self.projet.resume_texte(),
             tableau_import=self.resultats_partages.get("tableau_import"),
             catalogue_mcp=self.resultats_partages.get("catalogue_mcp"),
+            configuration_equipements=self.resultats_partages.get(
+                "configuration_equipements"
+            ),
         )
         messagebox.showinfo("Rapport généré", f"Rapport DOCX enregistré :\n{chemin}")
 
@@ -438,6 +441,9 @@ class TabVerification(OngletProjet):
             inputs_resume=self.projet.resume_texte(),
             tableau_import=self.resultats_partages.get("tableau_import"),
             catalogue_mcp=self.resultats_partages.get("catalogue_mcp"),
+            configuration_equipements=self.resultats_partages.get(
+                "configuration_equipements"
+            ),
         )
         messagebox.showinfo("Rapport généré", f"Rapport XLSX enregistré :\n{chemin}")
 
